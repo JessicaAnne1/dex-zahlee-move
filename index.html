@@ -500,15 +500,88 @@ main {
   display: flex;
   align-items: center;
   gap: 14px;
-  transition: transform 0.2s;
+  transition: all 0.3s cubic-bezier(.2,.9,.3,1.4);
+  cursor: pointer;
+  border: 2px solid transparent;
 }
 .breakdown-item:active { transform: scale(0.98); }
+.breakdown-item.done {
+  background: linear-gradient(135deg, #F2F6EC 0%, #E8F0DC 100%);
+  border-color: var(--euca);
+}
 .breakdown-emoji { font-size: 26px; width: 32px; text-align: center; }
 .breakdown-label { flex: 1; font-weight: 600; }
+.breakdown-item.done .breakdown-label {
+  text-decoration: line-through;
+  text-decoration-color: var(--euca);
+  text-decoration-thickness: 2px;
+  color: var(--euca-dark);
+}
 .breakdown-amount {
   font-family: 'Bowlby One SC', sans-serif;
   font-size: 20px;
   color: var(--dirt);
+}
+.breakdown-item.done .breakdown-amount { color: var(--euca); }
+.breakdown-tick {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2.5px solid var(--char);
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: all 0.3s cubic-bezier(.2,.9,.3,1.4);
+}
+.breakdown-tick svg {
+  width: 14px;
+  color: #fff;
+  opacity: 0;
+  transform: scale(0.3);
+  transition: all 0.25s cubic-bezier(.2,.9,.3,1.4);
+}
+.breakdown-item.done .breakdown-tick {
+  background: var(--euca);
+  border-color: var(--euca);
+  transform: scale(1.1) rotate(360deg);
+}
+.breakdown-item.done .breakdown-tick svg {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* === Add savings buttons === */
+.add-savings {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.add-btn {
+  background: linear-gradient(135deg, var(--ochre) 0%, var(--dirt) 100%);
+  color: #fff;
+  border: none;
+  padding: 16px 14px;
+  border-radius: 14px;
+  font-family: 'Bowlby One SC', sans-serif;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(200,85,61,0.3);
+  transition: all 0.2s cubic-bezier(.2,.9,.3,1.4);
+  position: relative;
+  overflow: hidden;
+}
+.add-btn:active {
+  transform: scale(0.95) translateY(2px);
+  box-shadow: 0 2px 8px rgba(200,85,61,0.3);
+}
+.add-btn.add-custom {
+  background: linear-gradient(135deg, var(--euca) 0%, var(--euca-dark) 100%);
+  grid-column: 1 / -1;
+  box-shadow: 0 6px 18px rgba(91,117,83,0.35);
 }
 
 /* === Next 3 === */
@@ -766,7 +839,16 @@ main {
       <div class="savings-remaining" id="savings-remaining-line"></div>
     </div>
 
-    <h3 class="section-h">What it's for</h3>
+    <h3 class="section-h">Banked it 🤝 Add to the kitty</h3>
+    <div class="add-savings">
+      <button class="add-btn" data-add="1000">+$10</button>
+      <button class="add-btn" data-add="5000">+$50</button>
+      <button class="add-btn" data-add="10000">+$100</button>
+      <button class="add-btn" data-add="50000">+$500</button>
+      <button class="add-btn add-custom" id="add-custom">+ Custom</button>
+    </div>
+
+    <h3 class="section-h">What it's for · tap when sorted</h3>
     <div id="savings-breakdown"></div>
   </section>
 
@@ -914,6 +996,12 @@ function apiSetCheck(id, checked) {
   const url = API_URL + "?action=setCheck&id=" + encodeURIComponent(id) + "&checked=" + (checked ? "true" : "false");
   fetch(url, { redirect: "follow" }).catch(err => console.warn("setCheck failed", err));
 }
+function apiAddSavings(cents) {
+  const url = API_URL + "?action=addSavings&cents=" + encodeURIComponent(cents);
+  return fetch(url, { redirect: "follow" })
+    .then(r => r.json())
+    .catch(err => { console.warn("addSavings failed", err); return null; });
+}
 
 function applyServerPayload(payload) {
   DATA = {
@@ -1009,12 +1097,51 @@ function renderSavings() {
   document.getElementById('savings-ring').style.strokeDashoffset = C * (1 - pct / 100);
   const remEl = document.getElementById('savings-remaining-line');
   remEl.textContent = remaining === 0 ? "🎉 Target hit. Pack the ute." : `${fmt(remaining)} to go`;
-  document.getElementById('savings-breakdown').innerHTML = DATA.savings.breakdown.map(b => `
-    <div class="breakdown-item">
+  document.getElementById('savings-breakdown').innerHTML = DATA.savings.breakdown.map(b => {
+    const id = 'breakdown-' + b.id;
+    const done = !!state.checked[id];
+    return `
+    <div class="breakdown-item ${done ? 'done' : ''}" data-breakdown-id="${id}">
       <div class="breakdown-emoji">${b.emoji}</div>
       <div class="breakdown-label">${b.label}</div>
       <div class="breakdown-amount">${fmt(b.amountCents)}</div>
-    </div>`).join('');
+      <div class="breakdown-tick"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 12 10 17 19 7"/></svg></div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('[data-breakdown-id]').forEach(el => {
+    el.addEventListener('click', () => toggleItem(el.dataset.breakdownId, 'breakdown'));
+  });
+
+  // Wire up add-savings buttons
+  document.querySelectorAll('.add-btn[data-add]').forEach(btn => {
+    btn.onclick = () => addSavingsAmount(Number(btn.dataset.add));
+  });
+  const customBtn = document.getElementById('add-custom');
+  if (customBtn) {
+    customBtn.onclick = () => {
+      const v = prompt("How much did you bank? (in dollars, e.g. 250)");
+      if (!v) return;
+      const dollars = parseFloat(String(v).replace(/[^0-9.]/g, ''));
+      if (!isFinite(dollars) || dollars <= 0) return;
+      addSavingsAmount(Math.round(dollars * 100));
+    };
+  }
+}
+
+function addSavingsAmount(cents) {
+  if (!cents || cents <= 0) return;
+  // Optimistic UI update
+  DATA.savings.currentCents = (DATA.savings.currentCents || 0) + cents;
+  renderSavings();
+  if (navigator.vibrate) navigator.vibrate(20);
+  burstConfetti(45);
+  flash("+" + fmt(cents) + " banked 💰");
+  apiAddSavings(cents).then(res => {
+    if (res && res.currentCents != null) {
+      DATA.savings.currentCents = res.currentCents;
+      renderSavings();
+    }
+  });
 }
 function fmt(cents) { return '$' + (cents / 100).toLocaleString('en-AU', { maximumFractionDigits: 0 }); }
 
@@ -1059,7 +1186,11 @@ function toggleItem(id, type) {
   if (type === 'item') {
     const room = DATA.rooms.find(r => r.items.some(i => i.id === id));
     if (room) updateRoomDom(room);
-  } else { renderTodos(); }
+  } else if (type === 'breakdown') {
+    renderSavings();
+  } else {
+    renderTodos();
+  }
   const overall = renderOverall();
   if (!wasDone) {
     bumpStreak();
